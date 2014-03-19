@@ -106,6 +106,11 @@ else
     };
 
     Markdown.Converter = function () {
+        var options = {};
+        this.setOptions = function(optionsParam) {
+            options = optionsParam;
+        };
+        
         var pluginHooks = this.hooks = new HookCollection();
         
         // given a URL that was encountered by itself (without markup), should return the link text that's to be given to this link
@@ -463,7 +468,7 @@ else
             text = text.replace(/~P/g, "://"); // put in place to prevent autolinking; reset now
             
             text = _EncodeAmpsAndAngles(text);
-            text = _DoItalicsAndBold(text);
+            text = options._DoItalicsAndBold ? options._DoItalicsAndBold(text) : _DoItalicsAndBold(text);
 
             // Do hard breaks:
             text = text.replace(/  +\n/g, " <br>\n");
@@ -1378,7 +1383,7 @@ else
                 if (match == "~D") // escape for dollar
                     return "%24";
                 if (match == ":") {
-                    if (offset == len - 1 || /[0-9\/]/.test(url.charAt(offset + 1)))
+                    //if (offset == len - 1 || /[0-9\/]/.test(url.charAt(offset + 1)))
                         return ":"
                 }
                 return "%" + match.charCodeAt(0).toString(16);

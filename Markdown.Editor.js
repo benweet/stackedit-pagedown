@@ -1,4 +1,4 @@
-﻿// needs Markdown.Converter.js at the moment
+// needs Markdown.Converter.js at the moment
 
 (function () {
 
@@ -89,7 +89,7 @@
     // - getConverter() returns the markdown converter object that was passed to the constructor
     // - run() actually starts the editor; should be called after all necessary plugins are registered. Calling this more than once is a no-op.
     // - refreshPreview() forces the preview to be updated. This method is only available after run() was called.
-    Markdown.Editor = function (markdownConverter, idPostfix, options) {
+    Markdown.EditorLight = function (markdownConverter, idPostfix, options) {
         
         options = options || {};
 
@@ -111,12 +111,14 @@
                                                   * its own image insertion dialog, this hook should return true, and the callback should be called with the chosen
                                                   * image url (or null if the user cancelled). If this hook returns false, the default dialog will be used.
                                                   */
+        hooks.addFalse("insertLinkDialog");
 
         this.getConverter = function () { return markdownConverter; }
 
         var that = this,
             panels;
 
+        var undoManager;
         this.run = function () {
             if (panels)
                 return; // already initialized
@@ -124,7 +126,7 @@
             panels = new PanelCollection(idPostfix);
             var commandManager = new CommandManager(hooks, getString);
             var previewManager = new PreviewManager(markdownConverter, panels, function () { hooks.onPreviewRefresh(); });
-            var undoManager, uiManager;
+            var uiManager;
 
             if (!/\?noundo/.test(doc.location.href)) {
                 undoManager = new UndoManager(function () {
@@ -144,7 +146,10 @@
 
             var forceRefresh = that.refreshPreview = function () { previewManager.refresh(true); };
 
-            forceRefresh();
+            //Not necessary
+            //forceRefresh();
+            that.undoManager = undoManager;
+            that.uiManager = uiManager;
         };
 
     }
@@ -659,7 +664,7 @@
                 }
             };
 
-            util.addEvent(panels.input, "keydown", handleCtrlYZ);
+            //util.addEvent(panels.input, "keydown", handleCtrlYZ);
             util.addEvent(panels.input, "keydown", handleModeChange);
             util.addEvent(panels.input, "mousedown", function () {
                 setMode("moving");
@@ -672,8 +677,25 @@
         var init = function () {
             setEventHandlers();
             refreshState(true);
+            //Not necessary
+            //saveState();
+        };
+        
+        this.reinit = function(content, start, end, scrollTop) {
+            undoStack = [];
+            stackPtr = 0;
+            mode = "none";
+            lastState = undefined;
+            timer = undefined;
+            refreshState();
+            inputStateObj.text = content;
+            inputStateObj.start = start;
+            inputStateObj.end = end;
+            inputStateObj.scrollTop = scrollTop;
+            inputStateObj.setInputAreaSelection();
             saveState();
         };
+        this.setMode = setMode;
 
         init();
     }
@@ -691,7 +713,7 @@
             if (!util.isVisible(inputArea)) {
                 return;
             }
-            if (!isInitialState && doc.activeElement && doc.activeElement !== inputArea) { // this happens when tabbing out of the input box
+            if (!isInitialState && !inputArea.focused) { // this happens when tabbing out of the input box
                 return;
             }
 
@@ -720,7 +742,7 @@
             }
             else if (doc.selection) {
 
-                if (doc.activeElement && doc.activeElement !== inputArea) {
+                if (!inputArea.focused) {
                     return;
                 }
 
@@ -789,7 +811,9 @@
                 inputArea.value = stateObj.text;
             }
             this.setInputAreaSelection();
-            inputArea.scrollTop = stateObj.scrollTop;
+            setTimeout(function() {
+                inputArea.scrollTop = stateObj.scrollTop;
+            }, 0);
         };
 
         // Gets a collection of HTML chunks from the inptut textarea.
@@ -827,7 +851,7 @@
         var elapsedTime;
         var oldInputText;
         var maxDelay = 3000;
-        var startType = "delayed"; // The other legal value is "manual"
+        var startType = "manual"; // The other legal value is "manual"
 
         // Adds event listeners to elements
         var setupEvents = function (inputElem, listener) {
@@ -1005,7 +1029,8 @@
         var init = function () {
 
             setupEvents(panels.input, applyTimeout);
-            makePreviewHtml();
+            //Not necessary
+            //makePreviewHtml();
 
             if (panels.preview) {
                 panels.preview.scrollTop = 0;
@@ -1227,7 +1252,7 @@
         util.addEvent(inputBox, keyEvent, function (key) {
 
             // Check to see if we have a button key and, if so execute the callback.
-            if ((key.ctrlKey || key.metaKey) && !key.altKey && !key.shiftKey) {
+            if ((key.ctrlKey || key.metaKey) && !key.altKey) {
 
                 var keyCode = key.charCode || key.keyCode;
                 var keyCodeStr = String.fromCharCode(keyCode).toLowerCase();
@@ -1274,6 +1299,12 @@
                             doClick(buttons.undo);
                         }
                         break;
+                    case "v":
+                        undoManager.setMode("typing");
+                        return;
+                    case "x":
+                        undoManager.setMode("deleting");
+                        return;
                     default:
                         return;
                 }
@@ -1317,10 +1348,11 @@
         function doClick(button) {
 
             inputBox.focus();
+            var linkOrImage = button.id == "wmd-link-button" || button.id == "wmd-image-button";
 
             if (button.textOp) {
 
-                if (undoManager) {
+                if (undoManager && !linkOrImage) {
                     undoManager.setCommandMode();
                 }
 
@@ -1365,6 +1397,9 @@
 
                 if (!noCleanup) {
                     fixupInputArea();
+                    if(!linkOrImage) {
+                        inputBox.dispatchEvent(new Event('input'));
+                    }
                 }
 
             }
@@ -1395,7 +1430,7 @@
                 // on mousedown.
                 if (uaSniffed.isIE) {
                     button.onmousedown = function () {
-                        if (doc.activeElement && doc.activeElement !== panels.input) { // we're not even in the input box, so there's no selection
+                        if (!panels.input.focused) { // we're not even in the input box, so there's no selection
                             return;
                         }
                         panels.ieCachedRange = document.selection.createRange();
@@ -1412,10 +1447,12 @@
                         return false;
                     }
                 }
+                button.className = button.className.replace(/ disabled/g, "");
             }
             else {
                 image.style.backgroundPosition = button.XShift + " " + disabledYShift;
                 button.onmouseover = button.onmouseout = button.onclick = function () { };
+                button.className += " disabled";
             }
         }
 
@@ -1521,6 +1558,8 @@
         };
 
         this.setUndoRedoButtonStates = setUndoRedoButtonStates;
+        this.buttons = buttons;
+        this.setButtonState = setupButton;
 
     }
 
@@ -1780,7 +1819,8 @@
                     ui.prompt(this.getString("imagedialog"), imageDefaultText, linkEnteredCallback);
             }
             else {
-                ui.prompt(this.getString("linkdialog"), linkDefaultText, linkEnteredCallback);
+                if (!this.hooks.insertLinkDialog(linkEnteredCallback))
+                	ui.prompt(this.getString("linkdialog"), linkDefaultText, linkEnteredCallback);
             }
             return true;
         }
